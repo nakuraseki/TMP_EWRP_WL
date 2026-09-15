@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0d12">
+<title>Elderwood — Whitelist</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0b0d12;
+    color: #dbd6c4;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.2rem;
+  }
+
+  h1 {
+    font-size: 1.1rem;
+    letter-spacing: 0.2em;
+    color: #c5a028;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .card {
+    background: #151820;
+    border: 1px solid rgba(160,140,90,0.18);
+    border-radius: 12px;
+    padding: 1.6rem 1.4rem;
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid rgba(160,140,90,0.1);
+  }
+  .row:last-child { border-bottom: none; }
+
+  .row-label {
+    font-size: 0.75rem;
+    color: #6b6455;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .row-value {
+    font-size: 0.95rem;
+    color: #dbd6c4;
+    text-align: right;
+    max-width: 60%;
+  }
+
+  /* Status badges */
+  .badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .badge-pending   { background: rgba(197,160,40,0.15);  color: #c5a028; border: 1px solid rgba(197,160,40,0.3); }
+  .badge-approved  { background: rgba(61,143,80,0.15);   color: #6dca88; border: 1px solid rgba(61,143,80,0.3); }
+  .badge-rejected  { background: rgba(184,64,64,0.15);   color: #e07070; border: 1px solid rgba(184,64,64,0.3); }
+  .badge-default   { background: rgba(160,140,90,0.1);   color: #9a9080; border: 1px solid rgba(160,140,90,0.2); }
+
+  .tags-wrap { display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+  .tag {
+    background: rgba(160,140,90,0.1);
+    border: 1px solid rgba(160,140,90,0.2);
+    color: #9a9080;
+    font-size: 0.72rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 10px;
+  }
+
+  /* Loader */
+  .loader {
+    width: 36px; height: 36px;
+    border: 3px solid rgba(197,160,40,0.15);
+    border-top-color: #c5a028;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 1.5rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error {
+    color: #e07070;
+    font-size: 0.9rem;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .refresh-btn {
+    margin-top: 1.8rem;
+    width: 100%;
+    max-width: 360px;
+    background: rgba(197,160,40,0.1);
+    border: 1px solid rgba(197,160,40,0.3);
+    color: #c5a028;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    padding: 0.8rem;
+    border-radius: 10px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: background 0.2s;
+  }
+  .refresh-btn:active { background: rgba(197,160,40,0.2); }
+
+  .updated-at {
+    margin-top: 1.2rem;
+    font-size: 0.72rem;
+    color: #6b6455;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Elderwood</h1>
+<div id="content">
+  <div class="loader"></div>
+</div>
+<button class="refresh-btn" onclick="load()">↻ Actualiser</button>
+<div class="updated-at" id="updated-at"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+const API_URL  = 'https://api.elderwood-rp.com';
+const API_KEY  = '2335d32c0f6bfa330aa06c36d279f652cc9fa9f96ca55cf58924596ac4f5d81c';
+
+// Token stocké dans localStorage (persist entre les visites)
+const TOKEN_KEY = 'ew_token';
+const TOKEN_EXP = 'ew_token_exp';
+
+// ── Auth ──────────────────────────────────────────────────────
+function getToken() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const exp   = parseInt(localStorage.getItem(TOKEN_EXP) || '0');
+  if (!token || Date.now() >= exp - 5 * 60 * 1000) return null;
+  return token;
+}
+
+function saveToken(token) {
+  let exp = Date.now() + 24 * 60 * 60 * 1000;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.exp) exp = payload.exp * 1000;
+  } catch {}
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_EXP, String(exp));
+}
+
+async function login() {
+  const email    = prompt('Email Elderwood :');
+  if (!email) throw new Error('Email requis.');
+  const password = prompt('Mot de passe :');
+  if (!password) throw new Error('Mot de passe requis.');
+
+  const basic = 'Basic ' + btoa(API_KEY + ':');
+  const r = await fetch(`${API_URL}/v2/account/authenticate/email?create=false`, {
+    method: 'POST',
+    headers: { 'Authorization': basic, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  const data = await r.json();
+  if (!data.token) throw new Error(data.message || 'Connexion échouée.');
+  saveToken(data.token);
+  return data.token;
+}
+
+async function getValidToken() {
+  let token = getToken();
+  if (!token) token = await login();
+  return token;
+}
+
+// ── RPC ───────────────────────────────────────────────────────
+async function rpc(token, id, payload = {}) {
+  const r = await fetch(`${API_URL}/v2/rpc/${id}`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(JSON.stringify(payload))
+  });
+  if (r.status === 401) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXP);
+    throw new Error('SESSION_EXPIRED');
+  }
+  const data = await r.json();
+  try { return JSON.parse(data.payload || '{}'); } catch { return data.payload; }
+}
+
+// ── Formatage ─────────────────────────────────────────────────
+function fmt(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('fr-FR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+const STATUS_LABELS = {
+  pending:   'En attente',
+  approved:  'Acceptée',
+  rejected:  'Refusée',
+  reviewing: 'En cours de revue',
+};
+
+const STEP_LABELS = {
+  rp:       'Étape RP',
+  lore:     'Lore',
+  rules:    'Règlement',
+  done:     'Terminé',
+};
+
+function badgeClass(status) {
+  if (status === 'approved') return 'badge-approved';
+  if (status === 'rejected') return 'badge-rejected';
+  if (status === 'pending' || status === 'reviewing') return 'badge-pending';
+  return 'badge-default';
+}
+
+// ── Rendu ─────────────────────────────────────────────────────
+function render(app) {
+  const status  = app.status || '—';
+  const step    = app.current_step || '—';
+  const tags    = app.tags || [];
+  const created = app.created_at;
+  const updated = app.updated_at;
+  const reviewed= app.reviewed_at;
+
+  const tagsHtml = tags.length
+    ? `<div class="tags-wrap">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>`
+    : '<span class="row-value">—</span>';
+
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <div class="row">
+        <span class="row-label">Statut</span>
+        <span class="badge ${badgeClass(status)}">${STATUS_LABELS[status] || status}</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Étape</span>
+        <span class="row-value">${STEP_LABELS[step] || step}</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Tags</span>
+        ${tagsHtml}
+      </div>
+      <div class="row">
+        <span class="row-label">Créée le</span>
+        <span class="row-value">${fmt(created)}</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Mise à jour</span>
+        <span class="row-value">${fmt(updated)}</span>
+      </div>
+      ${reviewed ? `
+      <div class="row">
+        <span class="row-label">Revue le</span>
+        <span class="row-value">${fmt(reviewed)}</span>
+      </div>` : ''}
+    </div>`;
+
+  document.getElementById('updated-at').textContent =
+    'Actualisé à ' + new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderError(msg) {
+  document.getElementById('content').innerHTML =
+    `<div class="error">${msg}</div>`;
+}
+
+// ── Main ──────────────────────────────────────────────────────
+async function load() {
+  document.getElementById('content').innerHTML = '<div class="loader"></div>';
+  document.getElementById('updated-at').textContent = '';
+
+  try {
+    let token = await getValidToken();
+    let result;
+    try {
+      result = await rpc(token, 'elderwood_get_whitelist_status');
+    } catch (e) {
+      if (e.message === 'SESSION_EXPIRED') {
+        token = await login();
+        result = await rpc(token, 'elderwood_get_whitelist_status');
+      } else throw e;
+    }
+
+    const app = result && result.application ? result.application : result;
+    if (!app || !app.status) {
+      renderError('Aucune candidature trouvée pour ce compte.');
+      return;
+    }
+    render(app);
+  } catch (e) {
+    renderError('Erreur : ' + e.message);
+  }
+}
+
+load();
+</script>
+</body>
+</html>
